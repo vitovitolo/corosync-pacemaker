@@ -1,0 +1,34 @@
+node server01
+node server02
+primitive pingCheck ocf:pacemaker:ping \
+        params name="default_ping_set" host_list="10.0.3.254" multiplier="100" \
+        op start interval="0s" timeout="60s" on-fail="restart" \
+        op monitor interval="10s" timeout="60s" on-fail="restart" \
+        op stop interval="0s" timeout="60s" on-fail="ignore"
+primitive redis ocf:heartbeat:redis \
+        op monitor interval="5s" timeout="10s" \
+        op start interval="0s" timeout="2s" on-fail="stop" \
+        op monitor interval="10s" timeout="30s" depth="1" \
+        op stop interval="0s" timeout="2s" on-fail="block" \
+        meta target-role="Started" migration-threshold="2"
+primitive vip-master ocf:heartbeat:IPaddr2 \
+        params ip="10.0.3.20" nic="eth0" cidr_netmask="24" iflabel="vip_master" \
+        op start interval="0s" timeout="60s" on-fail="stop" \
+        op monitor interval="10s" timeout="60s" on-fail="restart" \
+        op stop interval="0s" timeout="60s" on-fail="block" \
+        meta target-role="Started" migration-threshold="1"
+clone clnPingCheck pingCheck \
+        meta target-role="Started"
+location rsc_location vip-master \
+        rule $id="rsc_location-rule" -inf: not_defined default_ping_set or default_ping_set lte 0
+colocation ip_on_nginx inf: redis vip-master
+colocation nginx_ping inf: vip-master clnPingCheck
+order nginx_after_ip inf: vip-master redis
+order nginx_after_ping inf: clnPingCheck vip-master
+property $id="cib-bootstrap-options" \
+        dc-version="1.1.6-9971ebba4494012a93c03b40a2c58ec0eb60f50c" \
+        cluster-infrastructure="openais" \
+        expected-quorum-votes="2" \
+        stonith-enabled="false" \
+        no-quorum-policy="ignore" \
+        last-lrm-refresh="1390300083"

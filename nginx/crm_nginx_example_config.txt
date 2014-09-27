@@ -1,0 +1,38 @@
+### Corosync + Pacemaker cluster configuration ###
+
+#Requirements:  corosync 1.4.2
+#               pacemaker 1.1.6
+
+$ sudo crm configure edit
+
+node server01
+node server02
+primitive FAILOVER-ADDR ocf:heartbeat:IPaddr2 \
+        params ip="10.0.6.1" nic="eth0" cidr_netmask="24" iflabel="vip_master" \
+        op start interval="0s" timeout="60s" on-fail="stop" \
+        op monitor interval="10s" timeout="60s" on-fail="restart" \
+        op stop interval="0s" timeout="60s" on-fail="block" \
+        meta target-role="Started" migration-threshold="1"
+primitive FAILOVER-NGINX ocf:heartbeat:nginx \
+        op monitor interval="10s" timeout="30s" depth="1" \
+        meta target-role="Started" migration-threshold="1"
+primitive pingCheck ocf:pacemaker:ping \
+        params name="default_ping_set" host_list="10.0.6.254" multiplier="100" \
+        op start interval="0s" timeout="60s" on-fail="restart" \
+        op monitor interval="3s" timeout="60s" on-fail="restart" \
+        op stop interval="0s" timeout="60s" on-fail="ignore"
+clone clnPingCheck pingCheck \
+        meta target-role="Started"
+location rsc_location FAILOVER-ADDR \
+        rule $id="rsc_location-rule" -inf: not_defined default_ping_set or default_ping_set lte 0
+colocation ip_on_nginx inf: FAILOVER-NGINX FAILOVER-ADDR
+colocation nginx_ping inf: FAILOVER-ADDR clnPingCheck
+order nginx_after_ip inf: FAILOVER-ADDR FAILOVER-NGINX
+order nginx_after_ping inf: clnPingCheck FAILOVER-ADDR
+property $id="cib-bootstrap-options" \
+        dc-version="1.1.6-9971ebba4494012a93c03b40a2c58ec0eb60f50c" \
+        cluster-infrastructure="openais" \
+        expected-quorum-votes="2" \
+        stonith-enabled="false" \
+        no-quorum-policy="ignore" \
+        last-lrm-refresh="1387383063"

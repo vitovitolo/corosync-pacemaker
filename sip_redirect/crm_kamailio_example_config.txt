@@ -1,0 +1,42 @@
+### Corosync + Pacemaker cluster configuration ###
+
+#Requirements:  corosync 1.4.2
+#               pacemaker 1.1.6
+
+$ sudo crm configure edit
+
+
+node server01
+node server02
+primitive kamailio ocf:heartbeat:kamailio \
+        params ip="10.0.6.4" port="5060" \
+        op start interval="0s" timeout="2s" on-fail="stop" \
+        op monitor interval="5s" timeout="10s" depth="1" \
+        op stop interval="0s" timeout="2s" on-fail="block" \
+        meta target-role="Started" migration-threshold="2"
+primitive pingCheck ocf:pacemaker:ping \
+        params name="default_ping_set" host_list="10.0.6.254" multiplier="100" \
+        op start interval="0" timeout="60s" on-fail="restart" \
+        op monitor interval="3s" timeout="60s" on-fail="restart" \
+        op stop interval="0" timeout="60s" on-fail="ignore"
+primitive virtual-ip ocf:heartbeat:IPaddr2 \
+        params ip="10.0.6.4" nic="eth0" cidr_netmask="24" iflabel="vip_master" \
+        op start interval="0s" timeout="60s" on-fail="stop" \
+        op monitor interval="10s" timeout="60s" on-fail="restart" \
+        op stop interval="0s" timeout="60s" on-fail="block" \
+        meta target-role="Started" migration-threshold="1"
+clone clnPingCheck pingCheck \
+        meta target-role="Started"
+location ip_and_ping virtual-ip \
+        rule $id="ip_and_ping-rule" -inf: not_defined default_ping_set or default_ping_set lte 0
+colocation ip_with_ping inf: virtual-ip clnPingCheck
+colocation kama_with_ip inf: kamailio virtual-ip
+order ip_before_kama inf: virtual-ip kamailio
+order ping_before_ip inf: clnPingCheck virtual-ip
+property $id="cib-bootstrap-options" \
+        dc-version="1.1.6-9971ebba4494012a93c03b40a2c58ec0eb60f50c" \
+        cluster-infrastructure="openais" \
+        expected-quorum-votes="2" \
+        last-lrm-refresh="1391758697" \
+        stonith-enabled="false" \
+        no-quorum-policy="ignore"
